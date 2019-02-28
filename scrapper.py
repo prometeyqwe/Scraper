@@ -8,34 +8,36 @@ import datetime
 
 
 class Scrapper:
-    def __init__(self, path, depart_iata, arrived_iata, date_depart, date_arrived=None):
+    def __init__(self, path, depart_iata, arrived_iata, date_depart, date_arrived=None, adults_children=1):
         self.path = "http://" + path
         self.result = None
         self.depart_iata = depart_iata
-        if arrived_iata in self.get_arrived_iata():
-            self.arrived_iata = arrived_iata
-        else:
-            print("По данному направдению самолетов не найдено. Выберите другой пункт назначения.")
-            sys.exit()
-        if "[" + date_depart + "]" in self.get_date()[0]:
-            self.date_depart = ".".join([str.rjust(s, 2, '0') for s in date_depart.split(",")][::-1])
-
-        else:
-            print("На данную дату отправления самолетов не найдено. Выберите другую дату.")
-            sys.exit()
-
-        if date_arrived:
-            if "[" + date_arrived + "]" in self.get_date()[1]:
-                # print("date arrived done")
-                self.date_arrived = ".".join([str.rjust(s, 2, '0') for s in date_arrived.split(",")][::-1])
+        self.adults_children = adults_children
+        try:
+            if arrived_iata in self.get_arrived_iata():
+                self.arrived_iata = arrived_iata
             else:
-                print("На данную дату возврата самолетов не найдено. Выберите другую дату.")
+                print("По данному направдению самолетов не найдено. Выберите другой пункт назначения.")
                 sys.exit()
-        else:
-            self.date_arrived = None
+            if "[" + date_depart + "]" in self.get_date()[0]:
+                self.date_depart = ".".join([str.rjust(s, 2, '0') for s in date_depart.split(",")][::-1])
 
-    # надо добавить обработку исключений на методы requests!!!
-    # сделать методы get и post
+            else:
+                print("На данную дату отправления самолетов не найдено. Выберите другую дату.")
+                sys.exit()
+
+            if date_arrived:
+                if "[" + date_arrived + "]" in self.get_date()[1]:
+                    self.date_arrived = ".".join([str.rjust(s, 2, '0') for s in date_arrived.split(",")][::-1])
+                else:
+                    print("На данную дату возврата самолетов не найдено. Выберите другую дату.")
+                    sys.exit()
+            else:
+                self.date_arrived = None
+
+        except requests.exceptions.RequestException as e:
+            print e
+            sys.exit(1)
 
     def get_arrived_iata(self):
         r = requests.get(self.path + "/script/getcity/2-" + self.depart_iata)
@@ -51,25 +53,32 @@ class Scrapper:
         t2 = b.split(":")
 
         if t1[0] > '12' > t2[0]:
-            t1 = datetime.datetime(1, 1, 1, int(t1[0]), int(t1[1]))
             t2 = datetime.datetime(1, 1, 2, int(t2[0]), int(t2[1]))
         else:
-            t1 = datetime.datetime(1, 1, 1, int(t1[0]), int(t1[1]))
             t2 = datetime.datetime(1, 1, 1, int(t2[0]), int(t2[1]))
+
+        t1 = datetime.datetime(1, 1, 1, int(t1[0]), int(t1[1]))
+
         return str(t2 - t1)[:-3]
 
     def get_root_of_page(self):
-        if not self.date_arrived:
+        try:
+            if not self.date_arrived:
 
-            r = requests.get(self.path + "/en/search?lang=2&departure-city=" + self.depart_iata + "&arrival-city=" +
-                             self.arrived_iata + "&reserve-type=&"
-                                                 "departure-date=" + self.date_depart + "&adults-children=1&"
-                                                                                        "search=Search%21")
-        else:
-            r = requests.get(self.path + "/en/search?lang=2&departure-city=" + self.depart_iata + "&arrival-city=" +
-                             self.arrived_iata + "&reserve-type=&"
-                                                 "departure-date=" + self.date_depart + "&arrival-date=" +
-                             self.date_arrived + "&adults-children=1&" + "search=Search%21")
+                r = requests.get(self.path + "/en/search?lang=2&departure-city=" + self.depart_iata + "&arrival-city=" +
+                                 self.arrived_iata + "&reserve-type=&"
+                                                     "departure-date=" + self.date_depart + "&adults-children="
+                                 + str(self.adults_children) + "&search=Search%21")
+            else:
+                r = requests.get(self.path + "/en/search?lang=2&departure-city=" + self.depart_iata + "&arrival-city=" +
+                                 self.arrived_iata + "&reserve-type=&"
+                                                     "departure-date=" + self.date_depart + "&arrival-date=" +
+                                 self.date_arrived + "&adults-children=" + str(
+                    self.adults_children) + "&search=Search%21")
+
+        except requests.exceptions.RequestException as e:
+            print e
+            sys.exit(1)
 
         root = lh.fromstring(r.text)
         elt = root.xpath("//iframe")[0]
@@ -100,34 +109,28 @@ class Scrapper:
             print("\tArrival: {0}".format(res_arr1[i][2]))
             print("\tFlight duration: {0} hours".format(self.get_flight_duration(res_arr1[i][1], res_arr1[i][2])))
             print("\t{0}".format(res_arr1[i][5]))
-            # print(float(res_arr1[i][5].split(" ")[2].strip()))
             print("\n"),
 
     def parse(self):
         root = self.get_root_of_page()
         res_table = root.xpath("//table[@id='flywiz_tblQuotes']/tr[count(td)>1]")
-        # for i in res_table:
-        #     print(len(i), i.text_content())
 
         res_arr1 = [[] for _ in range((len(res_table)) // 2)]
         for row in range(len(res_table) + 1):
-            # for column in range(2, len(root.xpath("//table[@id='flywiz_tblQuotes']/tr[" + str(row) + "]/td")) + 1):
-            #     if column > 0:
-            #         res = root.xpath("//table[@id='flywiz_tblQuotes']/tr[" + str(row) + "]/td[" + str(column) + "]")[0] \
-            #             .text_content()
-            #         if res != "":
-            #             res_arr1[(row - 3) // 2].append(res)
             for i in root.xpath("//table[@id='flywiz_tblQuotes']/tr[count(td)>1][" + str(row) + "]/td"):
-                # print(i.text_content())
                 if i.text_content():
                     res_arr1[(row - 3) // 2].append(i.text_content())
 
+        for i in range(len(res_arr1)):  # пересчет суммы билетов для нескольких человек
+            if self.adults_children > 1:
+                res_arr1[i][5] = res_arr1[i][5].split()[0] + "  " + str(
+                    float(res_arr1[i][5].split()[1].strip()) * self.adults_children) + " " + res_arr1[i][5].split()[2]
+
         self.result = res_arr1
-        # for i in res_arr1:
-        #     print(i)
         print("count: {0}\n".format(len(res_arr1)))
 
 
-s1 = Scrapper("www.flybulgarien.dk", "BLL", "BOJ", "2019,7,1", "2019,7,8")
-s1.parse()
-s1.print_result()
+if __name__ == "__main__":
+    s1 = Scrapper("www.flybulgarien.dk", "BLL", "BOJ", "2019,7,8", adults_children=2)
+    s1.parse()
+    s1.print_result()
