@@ -5,6 +5,7 @@ import sys
 from lxml import html
 import json
 import datetime
+import argparse
 
 
 class Scraper(object):
@@ -14,26 +15,40 @@ class Scraper(object):
         self.result = None
         self.depart_iata = depart_iata
         self.adults_children = adults_children
-        self.date_arrived = date_arrived
+        self.date_arrived = None
+        try:
+            # unix format
+            formatted_date_depart = date_depart.strftime("%Y,%-m,%-d")
+            formatted_date_arrived = date_arrived.strftime("%Y,%-m,%-d") if date_arrived else ""
+        except ValueError:
+            # Windows format
+            formatted_date_depart = date_depart.strftime("%Y,%#m,%#d")
+            formatted_date_arrived = date_arrived.strftime("%Y,%#m,%#d") if date_arrived else ""
+
+        # print(formatted_date_depart)
+        # print(formatted_date_arrived)
+
         try:
             if arrived_iata in self.get_arrived_iata_codes():
                 self.arrived_iata = arrived_iata
             else:
                 print("There are no flights.")
                 sys.exit()
-            flight_dates = self.get_flight_dates()
-            if "[{}]".format(date_depart) in flight_dates[0]:
-                self.date_depart = ".".join([str.rjust(s, 2, '0') for s in date_depart.split(",")][::-1])
 
+            flight_dates = self.get_flight_dates()
+
+            if "[{}]".format(formatted_date_depart) in flight_dates[0]:
+                self.date_depart = date_depart.strftime("%d.%m.%Y")
             else:
-                print("There are no flights.")
+                print("На данную дату отправления самолетов не найдено. Выберите другую дату.")  # todo: change language
                 sys.exit()
 
-            if date_arrived:
-                if "[{}]".format(date_arrived) in flight_dates[1]:
-                    self.date_arrived = ".".join([str.rjust(s, 2, '0') for s in date_arrived.split(",")][::-1])
+            if formatted_date_arrived:
+                if "[{}]".format(formatted_date_arrived) in flight_dates[1]:
+                    self.date_arrived = date_arrived.strftime("%d.%m.%Y")
                 else:
-                    print("There are no flights.")
+                    print(
+                        "На данную дату возврата самолетов не найдено. Выберите другую дату.")  # todo: change language
                     sys.exit()
 
         except requests.exceptions.RequestException as e:
@@ -135,7 +150,46 @@ class Scraper(object):
         print("count: {0}\n".format(len(self.result)))
 
 
+def parse_user_arguments():
+    """Parse user search arguments"""
+    parse = argparse.ArgumentParser()
+    parse.add_argument("departure", help="Departure airport IATA code")
+    parse.add_argument("arrival", help="Arrival airport IATA code")
+    parse.add_argument("outbound_date", type=lambda s: datetime.datetime.strptime(s, '%Y-%m-%d'),
+                       help="Outbound date. Correct date format: %Y-%m-%d")
+    parse.add_argument("return_date", nargs="?", default="", type=lambda s: check_return_date(s),
+                       help="Inbound date. Correct date format: %Y-%m-%d")
+
+    return parse
+
+
+def check_return_date(return_date):
+    if return_date:
+        return datetime.datetime.strptime(return_date, "%Y-%m-%d")
+
+
+def validate_input_args(namespace):
+    """Validate user input"""
+    current_date = datetime.datetime.now()
+    if not namespace.departure.isalpha() or len(namespace.departure) != 3:
+        print "The departure is not correct. Example, LHR"
+    elif not namespace.arrival.isalpha() or len(namespace.arrival) != 3:
+        print "The arrival is not correct. Example, CGN"
+    elif namespace.outbound_date < current_date:
+        print "The outbound date is not correct: less than current date."
+    elif namespace.return_date and namespace.return_date < namespace.outbound_date:
+        print "The inbound date is not correct: less than outbound date."
+    else:
+        print "The input is correct."
+        return True
+    return False
+
+
 if __name__ == "__main__":
-    s1 = Scraper("BLL", "BOJ", "2019,7,8")
-    s1.scrape()
-    s1.print_result()
+    parser = parse_user_arguments()
+    args = parser.parse_args()
+    if validate_input_args(args):
+        print(args)
+        s1 = Scraper(args.departure, args.arrival, args.outbound_date, args.return_date)
+        s1.scrape()
+        s1.print_result()
